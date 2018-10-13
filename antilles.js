@@ -64,8 +64,7 @@ var clickHandler = (e) => {
 
 var highlightCountry = function (svg, countryName) {
 
-    var maxHeight = svg.viewBox.baseVal.height
-    var maxWidth  = svg.viewBox.baseVal.width
+    var max = {height: svg.viewBox.baseVal.height, width: svg.viewBox.baseVal.width}
 
     // Highlight and outline country
     var countryElement = svg.getElementById(countryName)
@@ -75,16 +74,16 @@ var highlightCountry = function (svg, countryName) {
     var country = outlineElement.getBBox()
 
     // Determine 'largest' quadrant that doesn't overlap
-    var largestQuadrantElement = getLargestQuadrant(country, maxWidth, maxHeight)
+    var largestQuadrantElement = getLargestQuadrant(country, max.width, max.height)
     if (!largestQuadrantElement) {return}
     svg.appendChild(largestQuadrantElement)
     set(largestQuadrantElement, "id", "largestQuadrant")
 
     // Determine clone size
     var largestQuadrant = largestQuadrantElement.getBBox()
-    var padding = Math.max(maxWidth / 16, maxHeight / 16)
-    var clone = { width:  Math.min(largestQuadrant.width  - 2 * padding, maxWidth  / 2),
-                height: Math.min(largestQuadrant.height - 2 * padding, maxHeight / 2)}
+    var padding = Math.max(max.width / 16, max.height / 16)
+    var clone = { width:  Math.min(largestQuadrant.width - 2 * padding, max.width  / 2),
+                 height: Math.min(largestQuadrant.height - 2 * padding, max.height / 2)}
     var aspectRatio = country.width / country.height
     if (clone.height * aspectRatio < clone.width) {
         // At the maximum clone height, scaling by the aspect ratio produces
@@ -97,6 +96,11 @@ var highlightCountry = function (svg, countryName) {
         clone.height = clone.width / aspectRatio
     }
 
+    // Configure download button
+    download.setAttribute("download", countryElement.id + ".svg")
+    download.setAttribute("href", "data:image/svg+xml;utf8," +  encodeURIComponent(svg.outerHTML))
+
+    // Don't proceed any further if the locator map isn't at least twice the size.
     var scale = clone.width / country.width
     if (scale < 2) {return}
 
@@ -135,39 +139,47 @@ var highlightCountry = function (svg, countryName) {
     // The dividing line between the country and the largest quadrant is
     // parallel to the fixed edge, meaning that the value that determines the
     // position of the fixed edge is in the other dimension.
-    var dividingLineAxis = largestQuadrant.height < maxHeight ? "x" : "y"
+    var dividingLineAxis = largestQuadrant.height < max.height ? "x" : "y"
 
-    // Draw enlargement lines
-    outlineElement.classList += " thick" // XXXXX
-    var corner = (rect, cornerName) => ({
-        "top left":     [rect.x,              rect.y],
-        "top right":    [rect.x + rect.width, rect.y],
-        "bottom left":  [rect.x,              rect.y + rect.height],
-        "bottom right": [rect.x + rect.width, rect.y + rect.height]
-    })[cornerName].join(",")
-    var flip = s => ({top: "bottom", bottom: "top", left: "right", right: "left", x: "y", y: "x"})[s]
-    var flipMaybe = (s, doIt) => !doIt ? s : flip(s)
-    if (dividingLineAxis == "x") {
-        clone.y = fixedEdge(largestQuadrant.y, country.y, country.height, clone.height, padding)
-        clone.x = floatingEdge(largestQuadrant.x, maxWidth, country.x, country.width, clone.width, padding)
-        var flip_ = s => flipMaybe(s, clone.y < country.y)
-        var guidelines = elem("polygon", {points: [
-            corner(country, flip_("bottom") + " left"),
-            corner(clone,   flip_("top")    + " left"),
-            corner(clone,   flip_("top")    + " right"),
-            corner(country, flip_("bottom") + " right")
-        ].join(" "), class: "created thick"})
-    } else if (dividingLineAxis == "y") {
-        clone.x = fixedEdge(largestQuadrant.x, country.x, country.width, clone.width, padding)
-        clone.y = floatingEdge(largestQuadrant.y, maxHeight, country.y, country.height, clone.height, padding)
-        var flip_ = s => flipMaybe(s, clone.x < country.x)
-        var guidelines = elem("polygon", {points: [
-            corner(clone,   "bottom " + flip_("left")),
-            corner(clone,   "top "    + flip_("left")),
-            corner(country, "top "    + flip_("right")),
-            corner(country, "bottom " + flip_("right"))
-        ].join(" "), class: "created thick"})
-    }
+    // Given a <rect> and the name of a corner, eg. top left, return the
+    // coordinates of that corner.
+    var corner = (rect, yDirection, xDirection) => (
+        {left: rect.x, right:  rect.x + rect.width }[xDirection] + "," +
+        {top:  rect.y, bottom: rect.y + rect.height}[yDirection] )
+
+    var flip = s => ({
+        top: "bottom", bottom: "top", left: "right",   right: "left",
+        x: "y",             y: "x",  width: "height", height: "width"
+    })[s]
+    var flipIf = doIt => doIt ? flip : (x => x)
+    var flipAxis = flipIf(dividingLineAxis == "y")
+
+    clone[flipAxis("x")] = floatingEdge(
+        largestQuadrant[flipAxis("x")],
+        max[flipAxis("width")],
+        country[flipAxis("x")],
+        country[flipAxis("width")],
+        clone[flipAxis("width")],
+        padding)
+
+    clone[flipAxis("y")] = fixedEdge(
+        largestQuadrant[flipAxis("y")],
+        country[flipAxis("y")],
+        country[flipAxis("height")],
+        clone[flipAxis("height")],
+        padding)
+
+    // Draw guidelines connecting country outline to clone outline
+    outlineElement.classList += " thick"
+    var flipVertical   = flipIf(clone.y < country.y && dividingLineAxis == "x")
+    var flipHorizontal = flipIf(clone.x < country.x && dividingLineAxis == "y")
+    var countryOrClone = {x: country, y: clone}
+    var guidelines = elem("polygon", {points: [
+        corner(countryOrClone[flipAxis("x")], flipVertical("bottom"), flipHorizontal("left")),
+        corner(countryOrClone[flipAxis("y")], flipAxis(flipVertical("top")), flipAxis(flipHorizontal("left"))),
+        corner(countryOrClone[flipAxis("y")], flipVertical("top"), flipHorizontal("right")),
+        corner(countryOrClone[flipAxis("x")], flipAxis(flipVertical("bottom")), flipAxis(flipHorizontal("right")))
+    ].join(" "), class: "created thick"})
     svg.appendChild(guidelines)
     
     // Draw clone
@@ -183,15 +195,10 @@ var highlightCountry = function (svg, countryName) {
     svg.appendChild(cloneOutline)
     svg.appendChild(cloneElement)
     cloneOutline.classList += " enlarged thick"
-
-    // Configure download button
-    download.setAttribute("download", countryElement.id + ".svg")
-    download.setAttribute("href", "data:image/svg+xml;utf8," +  encodeURIComponent(svg.outerHTML))
 }
 
 var objectTag = document.getElementById("antilles")
 objectTag.addEventListener("load", () => {
-
     var svg = objectTag.contentDocument.documentElement
 
     // Generate navigation list at the top of the page
@@ -206,5 +213,4 @@ objectTag.addEventListener("load", () => {
     download.setAttribute("href-lang", "image/svg+xml")
     download.innerText = "Download"
     document.body.prepend(download)
-
 })
