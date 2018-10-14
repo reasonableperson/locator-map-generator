@@ -201,6 +201,9 @@ var objectTag = document.getElementById("antilles")
 objectTag.addEventListener("load", () => {
     var svg = objectTag.contentDocument.documentElement
 
+    // Add custom styles
+    svg.prepend(document.getElementById("svgStyles"))
+
     // Generate navigation list at the top of the page
     document.body.prepend(navigationList(svg))
     document.getElementById("nav").addEventListener("click", clickHandler, false)
